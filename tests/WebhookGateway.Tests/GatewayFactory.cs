@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Time.Testing;
 using WebhookGateway.Data;
+using WebhookGateway.Outbound;
 
 namespace WebhookGateway.Tests;
 
@@ -16,12 +17,16 @@ public class GatewayFactory : WebApplicationFactory<Program>
 
     public FakeTimeProvider Clock { get; } = new(new DateTimeOffset(2026, 11, 26, 12, 0, 0, TimeSpan.Zero));
 
+    public FakeDestinations Destinations { get; } = new();
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");
         builder.UseSetting("ConnectionStrings:Default", ConnectionString);
         builder.UseSetting("Gateway:AdminApiKey", "test-admin-key");
         builder.UseSetting("Gateway:RunDeliveryWorker", "false");
+        builder.UseSetting("Gateway:MaxAttempts", "3");
+        builder.UseSetting("Gateway:RetryBaseDelay", "00:00:30");
 
         builder.UseSetting("Gateway:Sources:stripe:Scheme", "Stripe");
         builder.UseSetting("Gateway:Sources:stripe:Secret", "whsec_stripe");
@@ -42,15 +47,29 @@ public class GatewayFactory : WebApplicationFactory<Program>
             builder.UseSetting($"Gateway:Destinations:{name}:Secret", $"{name}_signing_secret");
         }
 
-        builder.ConfigureServices(services => services.AddSingleton<TimeProvider>(Clock));
+        builder.ConfigureServices(services =>
+        {
+            services.AddSingleton<TimeProvider>(Clock);
+            services.AddHttpClient(DeliveryProcessor.HttpClientName)
+                .ConfigurePrimaryHttpMessageHandler(() => Destinations)
+                .SetHandlerLifetime(Timeout.InfiniteTimeSpan);
+        });
     }
 
     /// <summary>Empties the tables so each test starts from a clean database.</summary>
     public async Task ResetDatabaseAsync()
     {
+        Destinations.Reset();
         using var scope = Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<GatewayDb>();
         await db.Database.ExecuteSqlRawAsync("TRUNCATE deliveries, webhook_events RESTART IDENTITY CASCADE");
+    }
+
+    /// <summary>One pass of the delivery worker, as a worker process would run it.</summary>
+    public async Task<int> DeliverDueAsync()
+    {
+        using var scope = Services.CreateScope();
+        return await scope.ServiceProvider.GetRequiredService<DeliveryProcessor>().DeliverDueAsync(50, CancellationToken.None);
     }
 
     public T WithDb<T>(Func<GatewayDb, T> query)

@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using WebhookGateway;
 using WebhookGateway.Data;
 using WebhookGateway.Ingest;
+using WebhookGateway.Outbound;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -11,6 +12,9 @@ builder.Services.AddDbContext<GatewayDb>(options => options
     .UseNpgsql(builder.Configuration.GetConnectionString("Default"))
     .UseSnakeCaseNamingConvention());
 builder.Services.TryAddSingleton(TimeProvider.System);
+builder.Services.AddHttpClient(DeliveryProcessor.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(10));
+builder.Services.AddScoped<DeliveryProcessor>();
+builder.Services.AddHostedService<DeliveryWorker>();
 
 var app = builder.Build();
 
