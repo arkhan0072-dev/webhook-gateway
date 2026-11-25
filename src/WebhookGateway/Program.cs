@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using WebhookGateway;
+using WebhookGateway.Admin;
 using WebhookGateway.Data;
 using WebhookGateway.Ingest;
 using WebhookGateway.Outbound;
@@ -25,6 +26,7 @@ using (var scope = app.Services.CreateScope())
 }
 
 app.MapPost("/webhooks/{source}", IngestEndpoint.Handle);
+app.MapAdmin();
 app.MapGet("/health", async (GatewayDb db) => await db.Database.CanConnectAsync() ? Results.Ok() : Results.StatusCode(503));
 
 app.Run();
