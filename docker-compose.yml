@@ -10,6 +10,27 @@ services:
     volumes:
       - ./docker/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gateway"]
+      interval: 2s
+      retries: 30
+
+  gateway:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      ConnectionStrings__Default: Host=db;Database=gateway;Username=gateway;Password=gateway
+      # Example source and destination. Put real secrets in an .env file, not here.
+      Gateway__AdminApiKey: ${GATEWAY_ADMIN_API_KEY:-}
+      Gateway__Sources__stripe__Scheme: Stripe
+      Gateway__Sources__stripe__Secret: ${STRIPE_WEBHOOK_SECRET:-}
+      Gateway__Sources__stripe__Destinations__0: billing
+      Gateway__Destinations__billing__Url: ${BILLING_WEBHOOK_URL:-http://host.docker.internal:9000/webhooks}
+      Gateway__Destinations__billing__Secret: ${BILLING_SIGNING_SECRET:-}
 
 volumes:
   pgdata:

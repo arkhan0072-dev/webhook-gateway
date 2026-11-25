@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: gateway
+          POSTGRES_PASSWORD: gateway
+          POSTGRES_DB: gateway_test
+        ports:
+          - 54330:5432
+        options: >-
+          --health-cmd "pg_isready -U gateway"
+          --health-interval 2s
+          --health-retries 30
+
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: 1
+      DOTNET_NOLOGO: 1
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+
+      - run: dotnet restore
+
+      - name: Code style
+        run: dotnet format --verify-no-changes --no-restore
+
+      - name: Tests (fails below 100% line coverage)
+        run: >-
+          dotnet test --no-restore
+          -p:CollectCoverage=true
+          "-p:ExcludeByFile=**/Migrations/*.cs"
+          -p:Threshold=100 -p:ThresholdType=line
+
+      - name: Docker image builds
+        run: docker build -t webhook-gateway .
